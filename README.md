@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GeorgiLucasEdwin/react-native-glass-transitions/main/.github/assets/banner-dark.svg">
-    <img src="https://raw.githubusercontent.com/GeorgiLucasEdwin/react-native-glass-transitions/main/.github/assets/banner-light.svg" alt="Glass Transitions" width="840">
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <img src=".github/assets/banner-light.svg" alt="Glass Transitions" width="840">
   </picture>
 </p>
 
