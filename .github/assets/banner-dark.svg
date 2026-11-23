@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-labelledby="t">
+  <title id="t">Glass Transitions</title>
+  <!-- Night has fallen across the top, day holds the bottom, and a lens of glass sits on the seam. -->
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="0" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#050914"/><stop offset=".6" stop-color="#0d1734"/><stop offset="1" stop-color="#1b2550"/>
+    </linearGradient>
+    <linearGradient id="day" x1="0" y1="0" x2="0" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a9c4e2"/><stop offset=".46" stop-color="#d3dcea"/><stop offset="1" stop-color="#e8cfb8"/>
+    </linearGradient>
+    <linearGradient id="tint" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7896ff" stop-opacity=".22"/><stop offset=".45" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#ffa064" stop-opacity=".2"/>
+    </linearGradient>
+    <linearGradient id="glint" x1="0" y1="0" x2="1" y2=".18">
+      <stop offset=".2" stop-color="#fff" stop-opacity="0"/><stop offset=".34" stop-color="#fff" stop-opacity=".35"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="card"><rect width="1280" height="440" rx="28"/></clipPath>
+    <clipPath id="above"><rect width="1280" height="250"/></clipPath>
+    <clipPath id="lens"><rect y="226" width="1280" height="48"/></clipPath>
+    <filter id="soft" x="-5%" y="-50%" width="110%" height="200%"><feGaussianBlur stdDeviation="1.2"/></filter>
+    <g id="type" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="600">
+      <text x="64" y="72" font-size="22" letter-spacing="-.35" fill-opacity=".7">React Native</text>
+      <text x="1216" y="72" font-size="22" letter-spacing="-.35" text-anchor="end" fill-opacity=".7">iOS</text>
+      <text x="640" y="214" font-size="140" letter-spacing="-4.2" text-anchor="middle">Glass</text>
+      <text x="640" y="344" font-size="140" letter-spacing="-4.2" text-anchor="middle">Transitions</text>
+    </g>
+  </defs>
+  <g clip-path="url(#card)">
+    <!-- Day -->
+    <rect width="1280" height="440" fill="url(#day)"/>
+    <use href="#type" fill="#1d1d1f"/>
+    <!-- Night -->
+    <g clip-path="url(#above)">
+      <rect width="1280" height="440" fill="url(#night)"/>
+      <use href="#type" fill="#f5f5f7"/>
+    </g>
+    <!-- The lens: what is under it, magnified a little and split into warm and cool edges -->
+    <g clip-path="url(#lens)">
+      <rect width="1280" height="440" fill="url(#day)"/>
+      <g filter="url(#soft)" transform="translate(640 250) scale(1.035) translate(-640 -250)">
+        <use href="#type" x="-3" fill="#ff6e3c" fill-opacity=".55"/>
+        <use href="#type" x="3" fill="#4678ff" fill-opacity=".55"/>
+        <use href="#type" fill="#1d1d1f"/>
+      </g>
+      <rect y="226" width="1280" height="48" fill="url(#tint)"/>
+      <rect y="226" width="1280" height="48" fill="url(#glint)"/>
+      <rect y="226" width="1280" height="1" fill="#fff" fill-opacity=".7"/>
+      <rect y="273" width="1280" height="1" fill="#fff" fill-opacity=".45"/>
+    </g>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="439" rx="27.5" fill="none" stroke="#fff" stroke-opacity=".14"/>
+</svg>

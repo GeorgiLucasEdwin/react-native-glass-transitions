@@ -1,0 +1,72 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead. Screen recordings help a lot with visual bugs.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A minimal snippet or repository, and the steps to trigger the bug.
+    validations:
+      required: true
+  - type: input
+    id: library
+    attributes:
+      label: react-native-glass-transitions version
+    validations:
+      required: true
+  - type: input
+    id: react-native
+    attributes:
+      label: React Native version
+    validations:
+      required: true
+  - type: input
+    id: expo
+    attributes:
+      label: Expo SDK version
+      description: Leave empty for a bare React Native app.
+  - type: input
+    id: skia
+    attributes:
+      label: '@shopify/react-native-skia version'
+    validations:
+      required: true
+  - type: input
+    id: reanimated
+    attributes:
+      label: react-native-reanimated version
+    validations:
+      required: true
+  - type: input
+    id: worklets
+    attributes:
+      label: react-native-worklets version
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Model, or simulator.
+      placeholder: iPhone 17 Pro / iOS Simulator
+    validations:
+      required: true
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: shell

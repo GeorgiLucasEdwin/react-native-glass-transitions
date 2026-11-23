@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "react-native-glass-transitions": ["../src/index"],
+      "react-native-glass-transitions/tuner": ["../src/tuner"]
+    }
+  }
+}

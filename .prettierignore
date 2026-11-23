@@ -1,0 +1,13 @@
+lib/
+node_modules/
+package-lock.json
+example/ios/
+example/android/
+example/.expo/
+media/
+marketing/site/media/
+.github/assets/
+*.png
+*.webp
+*.svg
+marketing/
