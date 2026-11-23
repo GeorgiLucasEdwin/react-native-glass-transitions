@@ -51,6 +51,7 @@ coverage/
 .idea/
 .claude/settings.local.json
 
-# large media (videos/screenshots for marketing; regenerate via the showcase)
+# large media (regenerate via the example's tour); the site's short clips are committed
 /media/
-/marketing/site/media/
+/marketing/site/media/hero*
+/marketing/dist/
