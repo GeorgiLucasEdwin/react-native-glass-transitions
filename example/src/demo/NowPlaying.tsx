@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { BlurMask, Canvas, Circle, Group, LinearGradient, RadialGradient, Rect, vec } from '@shopify/react-native-skia';
 import { useGlassSource } from 'react-native-glass-transitions';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTourTarget } from '../tour/Tour';
 import { usePrefs, useT } from './prefs';
@@ -73,9 +74,11 @@ export function NowPlaying() {
   const { pro, set } = usePrefs();
   const t = useT();
   const p = pro ? (dark ? PRO_DARK : PRO_LIGHT) : dark ? DARK : LIGHT;
+  // The button stays live through the sweep (same gold, same shape); only its label crossfades.
   const buy = useGlassSource();
-  const buyPro = () => buy.transition(() => set({ pro: true }), { preset: 'liquid', origin: 'source' });
-  useTourTarget('buy', buy.handle, buyPro);
+  const setPro = (on: boolean) => buy.transition(() => set({ pro: on }), { preset: 'liquid', origin: 'source' });
+  const buyPro = () => setPro(true);
+  useTourTarget('buy', buy.handle, () => setPro(!pro)); // the tour also goes back, through the same cutout
   const { width } = useWindowDimensions();
   const { top } = useSafeAreaInsets();
   const [playing, setPlaying] = useState(true);
@@ -149,35 +152,46 @@ export function NowPlaying() {
           <SymbolView name="speaker.wave.3.fill" size={13} tintColor={p.dim} />
         </View>
 
-        {pro ? (
-          // Unlocked: synced lyrics, current line bright.
-          <View style={[styles.lyrics, { backgroundColor: p.track }]}>
-            <Text style={[styles.lyricNow, { color: p.text }]} numberOfLines={1}>
-              And the light bends gold
-            </Text>
-            <Text style={[styles.lyricNext, { color: p.dim }]} numberOfLines={1}>
-              through the glass tonight
-            </Text>
-          </View>
-        ) : (
-          <View {...buy.props} style={styles.buy}>
-            <Pressable
-              onPress={buyPro}
-              accessibilityRole="button"
-              accessibilityLabel={t.upgrade}
-              style={({ pressed }) => [styles.buyButton, pressed && { opacity: 0.8 }]}
-            >
-              <SymbolView name="crown.fill" size={18} tintColor="#3A2604" />
-              <View>
-                <Text style={styles.buyTitle}>{t.upgrade}</Text>
-                <Text style={styles.buySub}>{t.upgradeSub}</Text>
-              </View>
-            </Pressable>
-          </View>
-        )}
+        <View {...buy.props} style={styles.buy}>
+          <Pressable
+            onPress={pro ? undefined : buyPro}
+            disabled={pro}
+            accessibilityRole="button"
+            accessibilityLabel={pro ? t.unlocked : t.upgrade}
+            style={styles.buyButton}
+          >
+            <BuyLabel pro={pro} />
+          </Pressable>
+        </View>
       </View>
       <ThemeButton tint={p.text} />
     </View>
+  );
+}
+
+/** Both labels stacked; they crossfade on their own while the glass sweeps the rest of the screen. */
+function BuyLabel({ pro }: { pro: boolean }) {
+  const t = useT();
+  const shown = useSharedValue(pro ? 1 : 0); // no fade when the screen first appears
+  useEffect(() => {
+    shown.value = withTiming(pro ? 1 : 0, { duration: 400 });
+  }, [pro, shown]);
+  const proStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
+  const freeStyle = useAnimatedStyle(() => ({ opacity: 1 - shown.value }));
+  const label = (icon: SymbolViewProps['name'], title: string, sub: string, style: object) => (
+    <Animated.View style={[styles.buyLabel, style]}>
+      <SymbolView name={icon} size={18} tintColor="#3A2604" />
+      <View>
+        <Text style={styles.buyTitle}>{title}</Text>
+        <Text style={styles.buySub}>{sub}</Text>
+      </View>
+    </Animated.View>
+  );
+  return (
+    <>
+      {label('crown.fill', t.upgrade, t.upgradeSub, freeStyle)}
+      {label('checkmark.seal.fill', t.unlocked, t.unlockedSub, proStyle)}
+    </>
   );
 }
 
@@ -199,16 +213,6 @@ const styles = StyleSheet.create({
   artPro: { borderWidth: 1.5, borderColor: '#E8C46A', boxShadow: '0 16px 44px rgba(214, 160, 60, 0.55)' },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5 },
   badgeText: { fontSize: 11, fontWeight: '700' },
-  lyrics: {
-    borderRadius: 18,
-    borderCurve: 'continuous',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 58,
-    justifyContent: 'center',
-  },
-  lyricNow: { fontSize: 17, fontWeight: '700' },
-  lyricNext: { fontSize: 15, fontWeight: '600', marginTop: 2 },
   buy: { borderRadius: 29 },
   buyButton: {
     minHeight: 58,
@@ -216,10 +220,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
     experimental_backgroundImage: GOLD_BUTTON,
-    boxShadow: '0 8px 20px rgba(200, 144, 46, 0.35)',
+    boxShadow: '0 8px 20px rgba(110, 70, 10, 0.3)', // amber-brown: still reads on the gold Pro background
   },
+  buyLabel: { ...StyleSheet.absoluteFill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
   buyTitle: { fontSize: 17, fontWeight: '700', color: '#3A2604' },
   buySub: { fontSize: 12, fontWeight: '600', color: 'rgba(58, 38, 4, 0.7)' },
   body: { paddingHorizontal: 32, paddingTop: 24, gap: 18 },

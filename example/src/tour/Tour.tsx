@@ -170,10 +170,6 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
     if (!target || !r) return console.warn(`tour: target '${name}' isn't mounted`);
     await target.run({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
   };
-  const centerOf = async (name: string): Promise<GlassOrigin> => {
-    const r = await targets.get(name)?.handle.measure();
-    return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : 'center';
-  };
   const REST = 600;
   const HOLD = 1100;
   const clip = async (name: string, there: () => Promise<unknown>, back: () => Promise<unknown>) => {
@@ -212,11 +208,10 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
     );
 
     await setup({}, 'music');
-    const buy = await centerOf('buy');
     await clip(
       'purchase',
       () => runTarget('buy'),
-      () => glass.transition(() => setPrefs({ pro: false }), { origin: buy, preset: 'liquid' }),
+      () => runTarget('buy'),
     );
 
     await setup({ hidden: true }, 'wallet');
