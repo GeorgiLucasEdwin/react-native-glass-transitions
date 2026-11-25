@@ -7,7 +7,7 @@ declare const __DEV__: boolean;
  * tap). true: each tap samples one wavelength along the warp and weighs it into R/G/B (1 pick a tap,
  * 8 taps): smoother rainbow, about a third of the texture reads under the glass.
  */
-const SPECTRAL = false;
+const SPECTRAL = true;
 
 // Defocus, averaged over a small golden-angle spiral. `jitter` spins it per pixel: grain, not ghosting.
 const standard = `
