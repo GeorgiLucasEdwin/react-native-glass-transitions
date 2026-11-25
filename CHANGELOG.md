@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.3] - 2026-11-25
 
 ### Fixed
 
@@ -36,6 +36,7 @@ Initial release.
 - Optional haptics via `expo-haptics`.
 - Dev tuner (`react-native-glass-transitions/tuner`) built on `@expo/ui`, with "Copy config".
 
+[0.1.3]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/releases/tag/v0.1.0
