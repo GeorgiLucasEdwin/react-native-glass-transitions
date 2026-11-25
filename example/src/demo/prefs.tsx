@@ -53,6 +53,7 @@ const en = {
   upgradeSub: 'Glass Pro · 1 month free',
   unlocked: 'Lossless Unlocked',
   unlockedSub: 'Glass Pro · Active',
+  cancelPro: 'Cancel Glass Pro',
   lossless: 'Lossless',
   // Photos
   library: 'Library',
@@ -117,6 +118,7 @@ const ja: Strings = {
   upgradeSub: 'Glass Pro · 1か月無料',
   unlocked: 'ロスレス有効',
   unlockedSub: 'Glass Pro · 有効',
+  cancelPro: 'Glass Pro を解約',
   lossless: 'ロスレス',
   library: 'ライブラリ',
   libraryCount: '写真 1,284 枚、ビデオ 96 本',
@@ -170,6 +172,7 @@ const es: Strings = {
   upgradeSub: 'Glass Pro · 1 mes gratis',
   unlocked: 'Lossless activado',
   unlockedSub: 'Glass Pro · Activo',
+  cancelPro: 'Cancelar Glass Pro',
   lossless: 'Lossless',
   library: 'Biblioteca',
   libraryCount: '1284 fotos, 96 vídeos',

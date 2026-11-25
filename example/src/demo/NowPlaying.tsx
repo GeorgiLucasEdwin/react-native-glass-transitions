@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { BlurMask, Canvas, Circle, Group, LinearGradient, RadialGradient, Rect, vec } from '@shopify/react-native-skia';
-import { useGlassSource } from 'react-native-glass-transitions';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useGlassSource, useGlassTransition } from 'react-native-glass-transitions';
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTourTarget } from '../tour/Tour';
 import { usePrefs, useT } from './prefs';
@@ -74,11 +74,17 @@ export function NowPlaying() {
   const { pro, set } = usePrefs();
   const t = useT();
   const p = pro ? (dark ? PRO_DARK : PRO_LIGHT) : dark ? DARK : LIGHT;
-  // The button stays live through the sweep (same gold, same shape); only its label crossfades.
+  // Buying: the button stays live through the sweep (same gold, same shape); only its label crossfades.
   const buy = useGlassSource();
-  const setPro = (on: boolean) => buy.transition(() => set({ pro: on }), { preset: 'liquid', origin: 'source' });
-  const buyPro = () => setPro(true);
-  useTourTarget('buy', buy.handle, () => setPro(!pro)); // the tour also goes back, through the same cutout
+  const buyPro = () => buy.transition(() => set({ pro: true }), { preset: 'liquid', origin: 'source' });
+  useTourTarget('buy', buy.handle, buyPro);
+  // Cancelling: the link goes away with Pro, so it isn't kept live; the glass starts where it was
+  // tapped and sweeps everything back, the button included.
+  const cancel = useGlassSource();
+  const glass = useGlassTransition();
+  const cancelPro = (at?: { x: number; y: number }) =>
+    glass.transition(() => set({ pro: false }), { preset: 'liquid', origin: at ?? 'touch' });
+  useTourTarget('cancel', cancel.handle, cancelPro);
   const { width } = useWindowDimensions();
   const { top } = useSafeAreaInsets();
   const [playing, setPlaying] = useState(true);
@@ -162,6 +168,14 @@ export function NowPlaying() {
           >
             <BuyLabel pro={pro} />
           </Pressable>
+          {pro && (
+            // Absolute, so showing it never moves the button.
+            <View style={styles.cancelRow}>
+              <Pressable {...cancel.props} onPress={() => cancelPro()} accessibilityRole="button" hitSlop={8}>
+                <Text style={[styles.cancelText, { color: p.dim }]}>{t.cancelPro}</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
       <ThemeButton tint={p.text} />
@@ -169,29 +183,32 @@ export function NowPlaying() {
   );
 }
 
-/** Both labels stacked; they crossfade on their own while the glass sweeps the rest of the screen. */
+/**
+ * Both labels sit on top of each other. Buying: the old one fades out as the new one fades in, on
+ * their own while the glass sweeps the rest of the screen. Cancelling (under the glass): instant.
+ */
 function BuyLabel({ pro }: { pro: boolean }) {
   const t = useT();
-  const shown = useSharedValue(pro ? 1 : 0); // no fade when the screen first appears
-  useEffect(() => {
-    shown.value = withTiming(pro ? 1 : 0, { duration: 400 });
-  }, [pro, shown]);
-  const proStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
-  const freeStyle = useAnimatedStyle(() => ({ opacity: 1 - shown.value }));
-  const label = (icon: SymbolViewProps['name'], title: string, sub: string, style: object) => (
-    <Animated.View style={[styles.buyLabel, style]}>
-      <SymbolView name={icon} size={18} tintColor="#3A2604" />
-      <View>
-        <Text style={styles.buyTitle}>{title}</Text>
-        <Text style={styles.buySub}>{sub}</Text>
-      </View>
-    </Animated.View>
-  );
   return (
-    <>
-      {label('crown.fill', t.upgrade, t.upgradeSub, freeStyle)}
-      {label('checkmark.seal.fill', t.unlocked, t.unlockedSub, proStyle)}
-    </>
+    <LayoutAnimationConfig skipEntering>
+      {pro ? (
+        <Animated.View key="pro" entering={FadeIn.duration(400)} style={styles.buyLabel}>
+          <SymbolView name="checkmark.seal.fill" size={18} tintColor="#3A2604" />
+          <View>
+            <Text style={styles.buyTitle}>{t.unlocked}</Text>
+            <Text style={styles.buySub}>{t.unlockedSub}</Text>
+          </View>
+        </Animated.View>
+      ) : (
+        <Animated.View key="free" exiting={FadeOut.duration(400)} style={styles.buyLabel}>
+          <SymbolView name="crown.fill" size={18} tintColor="#3A2604" />
+          <View>
+            <Text style={styles.buyTitle}>{t.upgrade}</Text>
+            <Text style={styles.buySub}>{t.upgradeSub}</Text>
+          </View>
+        </Animated.View>
+      )}
+    </LayoutAnimationConfig>
   );
 }
 
@@ -221,8 +238,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     experimental_backgroundImage: GOLD_BUTTON,
-    boxShadow: '0 8px 20px rgba(110, 70, 10, 0.3)', // amber-brown: still reads on the gold Pro background
+    // A layer shadow, not boxShadow: the glass's snapshots draw boxShadow clipped, so it would jump.
+    // Amber-brown, so it still reads on the gold Pro background.
+    backgroundColor: '#D9A845', // under the gradient; lets iOS draw the shadow from the shape
+    shadowColor: '#6E460A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 10,
+    shadowOpacity: 0.3,
   },
+  cancelRow: { position: 'absolute', top: 58 + 10, left: 0, right: 0, alignItems: 'center' },
+  cancelText: { fontSize: 13, fontWeight: '600' },
   buyLabel: { ...StyleSheet.absoluteFill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
   buyTitle: { fontSize: 17, fontWeight: '700', color: '#3A2604' },
   buySub: { fontSize: 12, fontWeight: '600', color: 'rgba(58, 38, 4, 0.7)' },

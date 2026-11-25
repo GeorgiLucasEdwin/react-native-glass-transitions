@@ -210,8 +210,8 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
     await setup({}, 'music');
     await clip(
       'purchase',
-      () => runTarget('buy'),
-      () => runTarget('buy'),
+      () => tapTarget('buy'),
+      () => tapTarget('cancel'),
     );
 
     await setup({ hidden: true }, 'wallet');
