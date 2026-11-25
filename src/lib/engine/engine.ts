@@ -276,11 +276,11 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
     }
     if (to === from) return fallback(r); // nothing visibly changed
     r.bars.to = barAt >= 0 ? barStyleFor(to, barAt) : null;
-    begin(r, { ...frame, to }, config, box, hole, band);
+    await begin(r, { ...frame, to }, config, box, hole, band);
   }
 
   /** The first changed shot is in: aim the glass and start it. */
-  function begin(r: Run<I>, frame: Frame<I>, config: GlassConfig, box: GlassRect, hole: GlassRect | undefined, band: number) {
+  async function begin(r: Run<I>, frame: Frame<I>, config: GlassConfig, box: GlassRect, hole: GlassRect | undefined, band: number) {
     const { width, height } = box;
     // Which way is the screen going? Drives the `auto` origin and the glass's mood.
     const delta = brightness(frame.from) - brightness(frame.to);
@@ -294,7 +294,11 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
       barDistance: band > 0 ? Math.max(0, center.y - band) : -1,
       direction,
     };
+    // Show the finished frame one frame before the glass moves: its image is uploaded to the GPU
+    // while the screen is still frozen, not on the sweep's first frame (which would stutter).
     show(frame);
+    await ports.nextFrame();
+    if (r.done) return;
     if (r.settings.haptics) ports.haptic('light');
     r.phase = 'sweeping';
     if (!r.interactive) ports.glass.sweep(aim, config.duration, () => swept(r, true));

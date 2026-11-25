@@ -210,6 +210,18 @@ test('a newer transition jumps the running one; each apply runs exactly once', a
   await clean();
 });
 
+test('the finished frame is shown one frame before the glass moves (its image uploads while frozen)', async () => {
+  const { h, engine, pump, drain, clean } = harness();
+  const p = engine.transition(() => (h.screen = BLACK));
+  for (let i = 0; i < 20 && !(h.shown && h.shown.to !== h.shown.from); i++) await pump();
+  assert.ok(h.shown && h.shown.to !== h.shown.from, 'finished frame shown');
+  assert.equal(h.sweeps.length, 0, 'glass not moving yet');
+  await pump();
+  assert.equal(h.sweeps.length, 1, 'glass moves on the next frame');
+  assert.equal(await drain(p), 'animated');
+  await clean();
+});
+
 test('nothing visibly changed: instant, no sweep', async () => {
   const { h, engine, drain, clean } = harness();
   assert.equal(await drain(engine.transition(() => {})), 'instant');

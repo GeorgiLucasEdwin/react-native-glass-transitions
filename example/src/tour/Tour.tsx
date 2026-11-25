@@ -2,7 +2,7 @@
 // Not part of the reference code: screens only mark their tour targets with `useTourTarget`.
 import { useEffect, useEffectEvent, useState, type Dispatch, type SetStateAction } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useGlassScrub,
@@ -19,9 +19,17 @@ import { EndCard } from './EndCard';
 export const SHOWCASE_ON_LAUNCH = false;
 /** Set to false to record clean clips without captions. */
 export const SHOWCASE_CAPTIONS = true;
+/** 'tour': the captioned story. 'clips': each scene as a seamless round trip (there and back), for looping videos. */
+export const SHOWCASE_MODE: 'tour' | 'clips' = 'tour';
 
 type Point = { x: number; y: number };
-export type TourUI = { caption: string | null; finger: Point | null; pressed?: boolean };
+export type TourUI = {
+  caption: string | null;
+  finger: Point | null;
+  pressed?: boolean;
+  /** Moves the finger down by `value * span` on the UI thread. */
+  follow?: { value: SharedValue<number>; span: number };
+};
 export const idleTour: TourUI = { caption: null, finger: null };
 
 type Target = { handle: GlassSourceHandle; run: (at: Point) => unknown };
@@ -55,6 +63,23 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
   const [end, setEnd] = useState(false);
 
   const show = (next: Partial<TourUI>) => setUI((ui) => ({ ...ui, ...next }));
+
+  // Drag the glass down from the top. The glass takes its snapshots before the finger shows up,
+  // and the drag runs on the UI thread, so neither the finger nor the glass waits on React.
+  const dragDown = async () => {
+    scrub.begin(
+      () => setScheme(true),
+      () => setScheme(false),
+      { origin: 'top', preset: 'glass' },
+    );
+    await wait(1600);
+    show({ finger: { x: width / 2, y: 140 }, pressed: true, follow: { value: scrub.target, span: height * 0.75 } });
+    await wait(400);
+    scrub.target.set(withTiming(0.62, { duration: 1400, easing: Easing.out(Easing.quad) })); // a hand slowing down
+    await wait(1400);
+    show({ finger: null, pressed: false, follow: undefined });
+    await scrub.end(true);
+  };
   const say = (caption: string | null) => show({ caption });
 
   // A visible finger: appear, press, lift. The glass then starts from that point.
@@ -126,25 +151,7 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
       'drag',
       'Drag it.',
       async () => {
-        scrub.begin(
-          () => setScheme(true),
-          () => setScheme(false),
-          { origin: 'top', preset: 'glass' },
-        );
-        const start = Date.now();
-        await new Promise<void>((done) => {
-          const step = () => {
-            const t = Math.min(1, (Date.now() - start) / 1400);
-            const p = 0.62 * (1 - Math.pow(1 - t, 2)); // ease out, like a hand slowing down
-            scrub.update(p);
-            show({ finger: { x: width / 2, y: 140 + p * height * 0.75 }, pressed: true });
-            if (t < 1) requestAnimationFrame(step);
-            else done();
-          };
-          requestAnimationFrame(step);
-        });
-        show({ finger: null, pressed: false });
-        await scrub.end(true);
+        await dragDown();
       },
       500,
     );
@@ -155,7 +162,89 @@ export function useTour(setUI: Dispatch<SetStateAction<TourUI>>, { setTab, setPr
     mark('end', 'end');
   };
 
-  const onLaunch = useEffectEvent(() => void play());
+  // Clips: every scene goes there and back, with the same rest before and after, so the first and
+  // last frames match and the video loops without a jump. Setup between scenes uses no glass.
+  const runTarget = async (name: string) => {
+    const target = targets.get(name);
+    const r = await target?.handle.measure();
+    if (!target || !r) return console.warn(`tour: target '${name}' isn't mounted`);
+    await target.run({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+  };
+  const centerOf = async (name: string): Promise<GlassOrigin> => {
+    const r = await targets.get(name)?.handle.measure();
+    return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : 'center';
+  };
+  const REST = 600;
+  const HOLD = 1100;
+  const clip = async (name: string, there: () => Promise<unknown>, back: () => Promise<unknown>) => {
+    await wait(700); // settle after setup
+    mark(name, 'start');
+    await wait(REST);
+    await there();
+    await wait(HOLD);
+    await back();
+    await wait(REST);
+    mark(name, 'end');
+  };
+  const setup = async (prefs: Partial<PrefsState>, tab: Tab, dark = false) => {
+    setPrefs({ ...initialPrefs, ...prefs });
+    setTab(tab);
+    setScheme(dark);
+    await wait(900);
+  };
+
+  const playClips = async () => {
+    setEnd(false);
+    setUI(idleTour);
+
+    await setup({}, 'weather');
+    await clip(
+      'night',
+      () => glass.transition(() => setScheme(true), { origin: 'auto', preset: 'glass' }),
+      () => glass.transition(() => setScheme(false), { origin: 'auto', preset: 'glass' }),
+    );
+
+    await setup({}, 'weather');
+    await clip(
+      'tabs',
+      () => glass.transition(() => setTab('music'), { origin: tabCenter('music', width, height, bottom), preset: 'liquid' }),
+      () => glass.transition(() => setTab('weather'), { origin: tabCenter('weather', width, height, bottom), preset: 'liquid' }),
+    );
+
+    await setup({}, 'music');
+    const buy = await centerOf('buy');
+    await clip(
+      'purchase',
+      () => runTarget('buy'),
+      () => glass.transition(() => setPrefs({ pro: false }), { origin: buy, preset: 'liquid' }),
+    );
+
+    await setup({ hidden: true }, 'wallet');
+    await clip(
+      'privacy',
+      () => runTarget('eye'),
+      () => runTarget('eye'),
+    );
+
+    await setup({}, 'settings');
+    await clip(
+      'language',
+      () => runTarget('lang:ja'),
+      () => runTarget('lang:en'),
+    );
+
+    await setup({}, 'weather');
+    await clip(
+      'drag',
+      async () => {
+        await dragDown();
+      },
+      () => glass.transition(() => setScheme(false), { origin: 'auto', preset: 'glass' }),
+    );
+    console.log('CLIPS done');
+  };
+
+  const onLaunch = useEffectEvent(() => void (SHOWCASE_MODE === 'clips' ? playClips() : play()));
   useEffect(() => {
     if (!SHOWCASE_ON_LAUNCH) return;
     const t = setTimeout(onLaunch, 1500);
@@ -180,14 +269,21 @@ export function TourOverlay({ ui }: { ui: TourUI }) {
           <Text style={styles.captionText}>{ui.caption}</Text>
         </Animated.View>
       )}
-      {ui.finger && (
-        <Animated.View
-          entering={FadeIn.duration(150)}
-          exiting={FadeOut.duration(200)}
-          style={[styles.finger, { left: ui.finger.x - 22, top: ui.finger.y - 22 }, ui.pressed && styles.pressed]}
-        />
-      )}
+      {ui.finger && <Finger at={ui.finger} pressed={ui.pressed} follow={ui.follow} />}
     </View>
+  );
+}
+
+function Finger({ at, pressed, follow }: { at: Point; pressed?: boolean; follow?: TourUI['follow'] }) {
+  const moved = useAnimatedStyle(() => ({ transform: [{ translateY: follow ? follow.value.value * follow.span : 0 }] }));
+  return (
+    <Animated.View
+      entering={FadeIn.duration(150)}
+      exiting={FadeOut.duration(200)}
+      style={[styles.spot, { left: at.x - 22, top: at.y - 22 }, moved]}
+    >
+      <View style={[styles.finger, pressed && styles.pressed]} />
+    </Animated.View>
   );
 }
 
@@ -205,8 +301,8 @@ const styles = StyleSheet.create({
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
   },
   captionText: { color: 'white', fontSize: 20, fontWeight: '600', letterSpacing: -0.4, textAlign: 'center' },
+  spot: { position: 'absolute', width: 44, height: 44 },
   finger: {
-    position: 'absolute',
     width: 44,
     height: 44,
     borderRadius: 22,
