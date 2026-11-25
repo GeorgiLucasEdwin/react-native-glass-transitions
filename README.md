@@ -74,6 +74,10 @@ const { transition } = useGlassTransition();
 transition(() => setTab('music'), { origin: 'touch' });
 ```
 
+### Sheets and modals
+
+Native sheets and modals (`formSheet`, `Modal`) are covered too: when the provider fills the window, the glass sweeps the whole window, a presented sheet and the screen behind it as one, from the control tapped in the sheet. Nothing to wrap. It needs `react-native-screens` (expo-router and React Navigation already have it) and the library's small native module (autolinked in Expo apps; rebuild after installing). Without them, the glass covers the provider's view only.
+
 ## API
 
 | API                         | What it is                                                                                              |

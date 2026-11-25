@@ -1,7 +1,7 @@
 // Native adapter for the engine: Skia snapshots, Reanimated shared values and reactions, RN status
 // bar, haptics. Owns every shared value the glass needs; the engine only sees `Ports`.
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { AccessibilityInfo, Platform, type HostInstance } from 'react-native';
+import { AccessibilityInfo, Dimensions, Platform, type HostInstance } from 'react-native';
 import { makeImageFromView, type SkImage } from '@shopify/react-native-skia';
 import { Easing, cancelAnimation, useAnimatedReaction, useDerivedValue, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
@@ -9,6 +9,7 @@ import { presets, type GlassConfig } from '../config';
 import { hapticLight, hapticSoft, hapticTick } from '../haptics';
 import { measureInWindow } from '../measure';
 import { holdBarStyle, statusBarHeight } from '../statusBar';
+import { snapshotWindow } from '../window';
 import { createEngine, type Aim, type Frame, type Ports, type Settings } from './engine';
 
 const NO_HOLE = [-9999, -9999, 0, 0];
@@ -18,9 +19,17 @@ const nextFrame = () => new Promise<number>(requestAnimationFrame);
 
 /**
  * Shared values, reactions and the run state machine behind <GlassTransitionProvider>.
- * `enabled` false (shader unavailable) makes every change instant.
+ * `enabled` false (shader unavailable) makes every change instant. `windowed` true: the glass covers
+ * the whole window (native sheets included), and `top` is the view holding its overlay, left out of
+ * the snapshots.
  */
-export function useGlassEngine(root: RefObject<HostInstance | null>, settings: RefObject<Settings>, enabled: boolean) {
+export function useGlassEngine(
+  root: RefObject<HostInstance | null>,
+  top: RefObject<HostInstance | null>,
+  windowed: RefObject<boolean>,
+  settings: RefObject<Settings>,
+  enabled: boolean,
+) {
   const [frame, setFrame] = useState<Frame<SkImage> | null>(null);
   const [busy, setBusy] = useState(false);
   const progress = useSharedValue(0);
@@ -54,6 +63,7 @@ export function useGlassEngine(root: RefObject<HostInstance | null>, settings: R
     };
     const ports: Ports<SkImage> = {
       snapshot() {
+        if (windowed.current) return snapshotWindow(top.current);
         // makeImageFromView rejects (not just returns null) on failure: treat both as "no snapshot".
         try {
           return makeImageFromView(root as never).catch(() => null);
@@ -61,7 +71,7 @@ export function useGlassEngine(root: RefObject<HostInstance | null>, settings: R
           return Promise.resolve(null);
         }
       },
-      measureRoot: () => measureInWindow(root.current),
+      measureRoot: () => (windowed.current ? Promise.resolve({ x: 0, y: 0, ...Dimensions.get('window') }) : measureInWindow(root.current)),
       statusBarHeight,
       holdBar: holdBarStyle,
       nextFrame,

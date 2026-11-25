@@ -1,11 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, View, type ColorValue, type HostInstance } from 'react-native';
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { StyleSheet, View, useWindowDimensions, type ColorValue, type HostInstance } from 'react-native';
 import { Canvas, Fill, Group, ImageShader, Shader, rect, rrect, type SkImage, type SkRuntimeEffect } from '@shopify/react-native-skia';
 import { overrides, presets, resolveConfig, type GlassConfig, type GlassOrigin, type GlassPreset } from './config';
 import { GlassContext, TunerContext, type GlassApi, type GlassTunerValue } from './context';
 import type { Frame, Settings } from './engine/engine';
 import { useGlassEngine } from './engine/native';
 import { compileGlass } from './shader';
+import { FullWindowOverlay, frameOf } from './window';
 
 export type GlassTransitionProviderProps = {
   children: ReactNode;
@@ -33,6 +34,16 @@ export type GlassTransitionProviderProps = {
  */
 export function GlassTransitionProvider({ children, preset = 'glass', config, origin = 'auto', haptics = true, backgroundColor }: GlassTransitionProviderProps) {
   const root = useRef<HostInstance>(null);
+  const top = useRef<HostInstance>(null);
+  // A root that fills the window gets the glass over the whole window, native sheets and modals
+  // included (when the app has react-native-screens and this library's native module).
+  const win = useWindowDimensions();
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const windowed = FullWindowOverlay !== null && Math.abs(size.width - win.width) < 1 && Math.abs(size.height - win.height) < 1;
+  const windowedRef = useRef(windowed);
+  useLayoutEffect(() => {
+    windowedRef.current = windowed;
+  }, [windowed]);
   // Compiling at mount keeps a shader failure out of rendering, and the first sweep from paying for it.
   const [effect] = useState(compileGlass);
 
@@ -51,7 +62,7 @@ export function GlassTransitionProvider({ children, preset = 'glass', config, or
     settings.current = { config: active, origin: activeOrigin, haptics };
   }, [active, activeOrigin, haptics]);
 
-  const { engine, frame, busy, uniforms, target } = useGlassEngine(root, settings, effect !== null);
+  const { engine, frame, busy, uniforms, target } = useGlassEngine(root, top, windowedRef, settings, effect !== null);
   const [glass] = useState<GlassApi>(() => ({ transition: engine.transition, scrub: engine.scrub, prepare: engine.prepare, target }));
 
   const tuner = useMemo<GlassTunerValue>(
@@ -70,6 +81,7 @@ export function GlassTransitionProvider({ children, preset = 'glass', config, or
     [active, activePreset, activeOrigin],
   );
 
+  const Above = windowed && FullWindowOverlay ? FullWindowOverlay : Fragment;
   return (
     <GlassContext.Provider value={glass}>
       <TunerContext.Provider value={tuner}>
@@ -78,16 +90,28 @@ export function GlassTransitionProvider({ children, preset = 'glass', config, or
             ref={root}
             collapsable={false}
             style={[styles.fill, backgroundColor != null && { backgroundColor }]}
-            onTouchStart={(e) => engine.touch(e.nativeEvent.pageX, e.nativeEvent.pageY)}
-            onLayout={(e) => engine.resize(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}
+            onTouchStart={(e) => {
+              // pageX/pageY are relative to a presented sheet, not the window: ask UIKit where the touched view is.
+              const { pageX, pageY, locationX, locationY, target } = e.nativeEvent;
+              void frameOf(target).then((r) => (r ? engine.touch(r.x + locationX, r.y + locationY) : engine.touch(pageX, pageY)));
+            }}
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              setSize({ width, height });
+              engine.resize(width, height);
+            }}
           >
             {children}
           </View>
-          {frame && effect && <GlassOverlay frame={frame} effect={effect} uniforms={uniforms} />}
-          {/* While any transition runs (from the first snapshot to the last frame, drags included), nothing
-              underneath can be touched: no scrolling under the frozen frame. A drag already in progress keeps
-              its touch, since touches stay with the view they began on. */}
-          {busy && <View style={StyleSheet.absoluteFill} pointerEvents="auto" accessible={false} />}
+          <Above>
+            <View ref={top} collapsable={false} style={StyleSheet.absoluteFill} pointerEvents="box-none">
+              {frame && effect && <GlassOverlay frame={frame} effect={effect} uniforms={uniforms} />}
+              {/* While any transition runs (from the first snapshot to the last frame, drags included), nothing
+                  underneath can be touched: no scrolling under the frozen frame. A drag already in progress keeps
+                  its touch, since touches stay with the view they began on. */}
+              {busy && <View style={StyleSheet.absoluteFill} pointerEvents="auto" accessible={false} />}
+            </View>
+          </Above>
         </View>
       </TunerContext.Provider>
     </GlassContext.Provider>

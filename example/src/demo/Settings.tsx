@@ -1,5 +1,16 @@
 import { useState, type ReactNode } from 'react';
-import { Appearance, Pressable, ScrollView, StyleSheet, Switch, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
+import {
+  Appearance,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+  useColorScheme,
+  useWindowDimensions,
+} from 'react-native';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -24,6 +35,9 @@ export function Settings() {
   const scrub = useGlassScrub();
   const tuner = useGlassTuner();
   const [tunerOpen, setTunerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const display = useGlassSource();
+  useTourTarget('display', display.handle, () => setSheetOpen(true));
 
   // Pull down to drag the glass in from the top; let go past a third (or flick) to commit.
   // The finger drives `target` on the UI thread; only begin and end hop to JS.
@@ -75,11 +89,18 @@ export function Settings() {
           </View>
 
           <Section header={t.appearance} footer={t.appearanceFooter}>
-            <Row icon="moon.fill" tint="systemIndigo" label={t.darkMode} last>
+            <Row icon="moon.fill" tint="systemIndigo" label={t.darkMode}>
               <View {...darkSwitch.props}>
                 <DarkSwitch source={darkSwitch} />
               </View>
             </Row>
+            <Pressable {...display.props} onPress={() => setSheetOpen(true)} accessibilityRole="button">
+              {({ pressed }) => (
+                <View style={pressed && styles.pressed}>
+                  <Row icon="circle.lefthalf.filled" tint="systemGray" label={t.display} chevron last />
+                </View>
+              )}
+            </Pressable>
           </Section>
 
           <Section header={t.language} footer={t.languageFooter}>
@@ -101,6 +122,9 @@ export function Settings() {
             <Row icon="waveform.path" tint="systemPink" label={t.driver} value="Reanimated" last />
           </Section>
         </ScrollView>
+        <Modal visible={sheetOpen} presentationStyle="formSheet" animationType="slide" onRequestClose={() => setSheetOpen(false)}>
+          <DisplaySheet onClose={() => setSheetOpen(false)} />
+        </Modal>
         {__DEV__ && <GlassTuner open={tunerOpen} onOpenChange={setTunerOpen} />}
       </View>
     </GestureDetector>
@@ -128,6 +152,53 @@ function DarkSwitch({ source }: { source: GlassSource }) {
         void source.transition(() => setScheme(v));
       }}
     />
+  );
+}
+
+/** A native sheet: the glass sweeps it and the screen behind it as one, from the option tapped. */
+function DisplaySheet({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  // The sheet's own copy: a presented sheet can hear about the new scheme a beat late.
+  const [dark, setDark] = useState(useColorScheme() === 'dark');
+  const pick = (next: boolean) => {
+    setDark(next);
+    setScheme(next);
+  };
+  return (
+    <View style={styles.sheet}>
+      <View style={styles.sheetBar}>
+        <Text style={styles.sheetTitle}>{t.display}</Text>
+        <Pressable onPress={onClose} accessibilityRole="button" hitSlop={12}>
+          <Text style={styles.done}>{t.done}</Text>
+        </Pressable>
+      </View>
+      <Section header={t.appearance}>
+        <SchemeRow label={t.light} selected={!dark} pick={() => pick(false)} target="scheme:light" />
+        <SchemeRow label={t.dark} selected={dark} pick={() => pick(true)} target="scheme:dark" last />
+      </Section>
+    </View>
+  );
+}
+
+type SchemeRowProps = { label: string; selected: boolean; pick: () => void; target: string; last?: boolean };
+
+/** Like a language row: the glass starts where the finger touched (or the tour's finger). */
+function SchemeRow({ label, selected, pick, target, last }: SchemeRowProps) {
+  const source = useGlassSource();
+  const glass = useGlassTransition();
+  const run = (at?: { x: number; y: number }) => !selected && glass.transition(pick, { origin: at ?? 'touch' });
+  useTourTarget(target, source.handle, run);
+  return (
+    <Pressable {...source.props} onPress={() => run()} accessibilityRole="button" accessibilityState={{ selected }}>
+      {({ pressed }) => (
+        <View style={[styles.langRow, pressed && styles.pressed]}>
+          <View style={[styles.rowContent, styles.langContent, !last && styles.separator]}>
+            <Text style={styles.label}>{label}</Text>
+            {selected && <SymbolView name="checkmark" size={17} weight="semibold" tintColor={TINT} />}
+          </View>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -224,4 +295,8 @@ const styles = StyleSheet.create({
   separator: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c('separator') },
   label: { flex: 1, fontSize: 17, color: c('label') },
   value: { fontSize: 17, color: c('secondaryLabel') },
+  sheet: { flex: 1, backgroundColor: c('systemGroupedBackground') },
+  sheetBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20 },
+  sheetTitle: { fontSize: 17, fontWeight: '600', color: c('label') },
+  done: { fontSize: 17, fontWeight: '600', color: TINT },
 });

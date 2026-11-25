@@ -23,8 +23,8 @@ export default defineConfig(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
-    // expo-haptics is an optional peer, loaded lazily so the library works without it.
-    files: ['src/haptics.ts', 'src/lib/haptics.ts'],
+    // Optional peers (expo-haptics, react-native-screens), loaded in try/catch so the library works without them.
+    files: ['src/haptics.ts', 'src/lib/haptics.ts', 'src/lib/window.ts'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 );

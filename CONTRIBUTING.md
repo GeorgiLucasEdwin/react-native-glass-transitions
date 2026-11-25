@@ -46,6 +46,7 @@ Releases are tested against:
 | react-native-reanimated    | 4.7     |
 | react-native-worklets      | 0.13    |
 | @shopify/react-native-skia | 2.14    |
+| react-native-screens       | 4.30    |
 
 The peer dependency floors in `package.json` match this matrix. Raise them when the matrix moves.
 

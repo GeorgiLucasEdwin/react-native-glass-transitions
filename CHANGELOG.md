@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-25
+
+### Added
+
+- Native sheets and modals join the sweep, with nothing to wrap: when the provider fills the window, the glass covers the whole window (a presented `formSheet` or `Modal` and the screen behind it, as one sweep from a control tapped in the sheet). Needs `react-native-screens` (a new optional peer) and the library's small iOS native module (Expo autolinking; rebuild the app after updating). Without them, the glass covers the provider's view, as before.
+
+### Fixed
+
+- Origins inside a native sheet (`source`, `touch`, `live`): React Native measures a presented sheet from its own top, so the glass started in the wrong place. Views are now measured where UIKit shows them.
+
 ## [0.1.3] - 2026-11-25
 
 ### Fixed
@@ -36,6 +46,7 @@ Initial release.
 - Optional haptics via `expo-haptics`.
 - Dev tuner (`react-native-glass-transitions/tuner`) built on `@expo/ui`, with "Copy config".
 
+[0.2.0]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.0...v0.1.1
