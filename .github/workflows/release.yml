@@ -18,10 +18,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           registry-url: https://registry.npmjs.org
-      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
-      - run: npm install -g npm@11
+      # Staged publishing (`npm stage`) needs npm 12; Node 22 ships npm 10.
+      - run: npm install -g npm@12
       - name: Tag matches package.json version
         run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
       - run: npm ci
       - run: npm run check
-      - run: npm publish
+      # Staged: the version goes live only after you approve it on npmjs.com (2FA).
+      - run: npm stage publish .
