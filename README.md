@@ -76,7 +76,7 @@ transition(() => setTab('music'), { origin: 'touch' });
 
 ## API
 
-|                             |                                                                                                         |
+| API                         | What it is                                                                                              |
 | --------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `<GlassTransitionProvider>` | `preset`, `config`, `origin`, `haptics`, `backgroundColor`                                              |
 | `useGlassTransition()`      | `transition(apply, { origin, live, preset, config })` resolves `'animated'`, `'instant'` or `'skipped'` |
