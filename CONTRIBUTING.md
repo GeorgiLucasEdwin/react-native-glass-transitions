@@ -60,4 +60,4 @@ For each release:
 1. Bump `version` in `package.json` (`npm version <patch|minor|major> --no-git-tag-version`).
 2. In `CHANGELOG.md`, move the `Unreleased` entries under the new version with today's date and update the compare links.
 3. Commit, push to `main` and wait for CI to pass.
-4. Create a GitHub release with tag `v<version>` (e.g. `v0.1.0`). Publishing it triggers the workflow, which checks that the tag matches `package.json`, runs `npm run check` and stages the release on npm. It goes live once you approve it on npmjs.com (or `npm stage approve <id>`) with two-factor auth.
+4. Create a GitHub release with tag `v<version>` (e.g. `v0.1.0`). Publishing it triggers the workflow, which checks that the tag matches `package.json`, runs `npm run check` and publishes to npm with provenance.
