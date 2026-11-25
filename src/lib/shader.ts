@@ -75,13 +75,14 @@ const float BEVEL = 1.25;     // surface steepness: higher = sharper highlight
 float noise(float2 p) { return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715)))); }
 
 // The live control shows through a hole in the overlay, so its frozen copy in the snapshots
-// must never appear (refraction or settle could shift it into view). Sample the row
-// background just left of it instead.
+// must never appear (refraction or settle could shift it into view). Inside the hole's pill (the
+// same shape the overlay cuts, plus antialiasing), sample the row background just left of it
+// instead. Only the pill: whatever is around the control (its shadow) stays as it is.
 float2 erase(float2 q) {
-  float2 lo = hole.xy - 3.0;
-  float2 hi = hole.xy + hole.zw + 3.0;
-  bool inside = q.x > lo.x && q.y > lo.y && q.x < hi.x && q.y < hi.y;
-  return inside ? float2(lo.x - 4.0, q.y) : q;
+  float r = hole.w * 0.5;
+  float2 k = abs(q - (hole.xy + hole.zw * 0.5)) - (hole.zw * 0.5 - r);
+  float edge = length(max(k, 0.0)) + min(max(k.x, k.y), 0.0) - r;
+  return edge < 1.5 ? float2(hole.x - 7.0, q.y) : q;
 }
 
 // Screen behind the glass at q, so the boundary itself is refracted.
