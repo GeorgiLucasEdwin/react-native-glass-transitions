@@ -4,6 +4,24 @@ import type { GlassOrigin } from './config';
 import type { GlassRect } from './types';
 
 export type PixelSource = Pick<SkImage, 'width' | 'height' | 'readPixels'>;
+
+/** A snapshot. Owned by the engine: it disposes each exactly once, never while a frame shows it. */
+export type GlassImage = PixelSource & { dispose(): void };
+
+/**
+ * A snapshot to draw (`image`) and to look at (width/height/readPixels: maybe a smaller sample of it,
+ * so only read it by fractions of its size, as the helpers below do).
+ */
+export type Shot = GlassImage & { image: SkImage };
+
+/** A Skia image as a `Shot`: it reads its own pixels. */
+export const shotOf = (image: SkImage): Shot => ({
+  image,
+  width: () => image.width(),
+  height: () => image.height(),
+  readPixels: (...args) => image.readPixels(...args),
+  dispose: () => image.dispose(),
+});
 export type BarStyle = 'dark-content' | 'light-content';
 type Point = { x: number; y: number };
 

@@ -9,6 +9,7 @@ import { createEngine, type Aim, type Frame, type Ports } from '../lib/engine/en
 type Color = (x: number, y: number) => number[];
 const WHITE: Color = () => [255, 255, 255];
 const BLACK: Color = () => [0, 0, 0];
+const CONTROL = 7; // a touched view's tag that the native side skips
 const W = 100;
 const H = 200;
 
@@ -25,6 +26,7 @@ function harness({ enabled = true, barHeight = 20 } = {}) {
     haptics: [] as string[],
     stops: 0,
     sweeps: [] as Aim[],
+    reaims: [] as Aim[],
     follows: [] as Aim[],
     /** The running animation's completion callback (sweep or let go). */
     animation: null as (() => void) | null,
@@ -58,7 +60,8 @@ function harness({ enabled = true, barHeight = 20 } = {}) {
   const nextFrame = () => new Promise<void>((done) => h.frames.push(done));
 
   const ports: Ports<Img> = {
-    snapshot: async () => {
+    snapshot: async (touched) => {
+      if (touched === CONTROL) return null; // skipped: a native control
       h.snapshots++;
       return new Img(h.screen);
     },
@@ -96,6 +99,7 @@ function harness({ enabled = true, barHeight = 20 } = {}) {
         h.sweeps.push(aim);
         h.animation = done;
       },
+      reaim: (aim) => void h.reaims.push(aim),
       follow: (aim) => void h.follows.push(aim),
       letGo(_commit, done) {
         h.animation = done;
@@ -243,7 +247,7 @@ test('a small change (one list row) starts the sweep within two retakes', async 
   await clean();
 });
 
-test('a repaint a frame later: the sweep waits for it, then reveals the finished screen in the right direction', async () => {
+test('a repaint a frame later: the sweep starts at once, and swaps in the finished screen', async () => {
   const { h, engine, pump, drain, clean } = harness();
   const row: Color = (_x, y) => (y >= 130 && y < 140 ? [0, 122, 255] : [255, 255, 255]);
   let afterApply = -1;
@@ -251,14 +255,27 @@ test('a repaint a frame later: the sweep waits for it, then reveals the finished
     h.screen = row; // a small part of the UI updates first (a button's icon)...
     afterApply = h.snapshots;
   });
-  for (let i = 0; i < 10 && (afterApply < 0 || h.snapshots === afterApply); i++) await pump();
-  assert.equal(h.sweeps.length, 0, 'not started on a half-updated screen');
-  h.screen = BLACK; // ...and a canvas-drawn background catches up a frame later
   for (let i = 0; i < 10 && !h.sweeps.length; i++) await pump();
+  assert.equal(h.sweeps.length, 1, 'started on the first changed shot');
+  assert.equal(h.snapshots - afterApply, 1);
+  h.screen = BLACK; // ...and a canvas-drawn background catches up a frame later
+  await pump(4);
+  assert.equal(h.shown?.to.color, BLACK, 'the finished screen is what the glass reveals');
   assert.equal(h.sweeps.length, 1);
-  assert.equal(h.sweeps[0]!.center.y, 0, 'direction from the finished screen: night falls from the top');
+  assert.equal(h.reaims.length, 1);
+  assert.equal(h.reaims[0]!.center.y, 0, 're-aimed from the finished screen: night falls from the top');
   assert.equal(await drain(p), 'animated');
   await clean(); // superseded shots disposed, none while drawn
+});
+
+test('a touch-down shot skipped (native control): the run snapshots then, and still sweeps', async () => {
+  const { h, engine, pump, drain, clean } = harness();
+  engine.prepare(CONTROL);
+  const p = engine.transition(() => void (h.screen = BLACK));
+  for (let i = 0; i < 10 && !h.sweeps.length; i++) await pump();
+  assert.equal(h.sweeps.length, 1);
+  assert.equal(await drain(p), 'animated');
+  await clean();
 });
 
 test('a throwing apply rejects after cleanup, touches unblocked', async () => {
@@ -308,6 +325,22 @@ test('scrub: follows, commits on end(true)', async () => {
   assert.equal(h.follows.length, 1);
   assert.equal(await drain(scrub.end(true)), 'animated');
   assert.equal(h.screen, BLACK);
+  await clean();
+});
+
+test('scrub: never re-aimed under the finger, even when the screen was still painting', async () => {
+  const { h, engine, pump, untilSweeping, drain, clean } = harness();
+  const row: Color = (_x, y) => (y >= 130 && y < 140 ? [0, 122, 255] : [255, 255, 255]);
+  const scrub = engine.scrub(
+    () => (h.screen = row),
+    () => (h.screen = WHITE),
+  );
+  await untilSweeping();
+  h.screen = BLACK; // the rest of the new look lands after the glass is following the finger
+  await pump(4);
+  assert.equal(h.shown?.to.color, BLACK, 'still swaps in the finished look');
+  assert.equal(h.reaims.length, 0);
+  assert.equal(await drain(scrub.end(true)), 'animated');
   await clean();
 });
 

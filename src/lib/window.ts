@@ -3,11 +3,14 @@
 // FullWindowOverlay; without either, the glass covers the provider's root view only.
 import type { ComponentType, ReactNode } from 'react';
 import { findNodeHandle, type HostInstance } from 'react-native';
-import { Skia, type SkImage } from '@shopify/react-native-skia';
+import { Skia } from '@shopify/react-native-skia';
+import { runOnUIAsync } from 'react-native-worklets';
+import type { PixelSource, Shot } from './snapshot';
 
 type GlassWindow = {
   frame(tag: number): Promise<number[] | null>;
-  snapshot(skip: number | null): Promise<{ width: number; height: number; pixels: Uint8Array } | null>;
+  snapshot(skip: number | null, touched: number | null): Promise<{ id: number; address: number; width: number; height: number; pixels: Uint8Array } | null>;
+  release(id: number): Promise<void>;
 };
 const native = (globalThis as { expo?: { modules?: { GlassWindow?: GlassWindow } } }).expo?.modules?.GlassWindow;
 
@@ -28,13 +31,38 @@ export async function frameOf(view: HostInstance | number | null | undefined) {
   return r ? { x: r[0]!, y: r[1]!, width: r[2]!, height: r[3]! } : null;
 }
 
-const RGBA = { width: 0, height: 0, colorType: 4, alphaType: 2 }; // RGBA_8888, premultiplied
-
-/** The window as the user sees it, minus the window-level view holding `skip` (our overlay). */
-export async function snapshotWindow(skip: HostInstance | null): Promise<SkImage | null> {
-  const tag = skip && findNodeHandle(skip);
-  const shot = await native?.snapshot(tag ?? null).catch(() => null);
+/**
+ * The window as the user sees it, minus the window-level view holding `skip` (our overlay). The image
+ * is a texture over the native pixel buffer, made on the UI thread (where the overlay draws): no copy,
+ * no upload. Comparisons and colors read a small sample of it instead.
+ */
+export async function snapshotWindow(skip: HostInstance | null, touched?: number): Promise<Shot | null> {
+  const shot = await native?.snapshot((skip && findNodeHandle(skip)) ?? null, touched ?? null).catch(() => null);
   if (!shot) return null;
+  const release = () => void native?.release(shot.id).catch(() => {});
+  const image = await runOnUIAsync((address: number) => {
+    'worklet';
+    return Skia.Image.MakeImageFromNativeBuffer(BigInt(address));
+  }, shot.address).catch(() => null);
+  if (!image) {
+    release();
+    return null;
+  }
   const { width, height, pixels } = shot;
-  return Skia.Image.MakeImage({ ...RGBA, width, height }, Skia.Data.fromBytes(pixels), width * 4);
+  return {
+    image,
+    width: () => width,
+    height: () => height,
+    readPixels: ((x = 0, y = 0) => {
+      const i = (y * width + x) * 4;
+      return pixels.subarray(i, i + 4);
+    }) as PixelSource['readPixels'],
+    dispose() {
+      // Freed on the UI thread, where it was made; the buffer only after.
+      runOnUIAsync(() => {
+        'worklet';
+        image.dispose();
+      }).then(release, release);
+    },
+  };
 }

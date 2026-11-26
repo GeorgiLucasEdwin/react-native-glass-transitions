@@ -1,11 +1,12 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, useWindowDimensions, type ColorValue, type HostInstance } from 'react-native';
-import { Canvas, Fill, Group, ImageShader, Shader, rect, rrect, type SkImage, type SkRuntimeEffect } from '@shopify/react-native-skia';
+import { Canvas, Fill, Group, ImageShader, Shader, rect, rrect, type SkRuntimeEffect } from '@shopify/react-native-skia';
 import { overrides, presets, resolveConfig, type GlassConfig, type GlassOrigin, type GlassPreset } from './config';
 import { GlassContext, TunerContext, type GlassApi, type GlassTunerValue } from './context';
 import type { Frame, Settings } from './engine/engine';
 import { useGlassEngine } from './engine/native';
 import { compileGlass } from './shader';
+import type { Shot } from './snapshot';
 import { FullWindowOverlay, frameOf } from './window';
 
 export type GlassTransitionProviderProps = {
@@ -109,7 +110,8 @@ export function GlassTransitionProvider({ children, preset = 'glass', config, or
               {/* While any transition runs (from the first snapshot to the last frame, drags included), nothing
                   underneath can be touched: no scrolling under the frozen frame. A drag already in progress keeps
                   its touch, since touches stay with the view they began on. */}
-              {busy && <View style={StyleSheet.absoluteFill} pointerEvents="auto" accessible={false} />}
+              {/* collapsable={false}: a view with no visual style would be flattened away, and block nothing. */}
+              {busy && <View collapsable={false} style={StyleSheet.absoluteFill} pointerEvents="auto" accessible={false} />}
             </View>
           </Above>
         </View>
@@ -121,14 +123,14 @@ export function GlassTransitionProvider({ children, preset = 'glass', config, or
 type Uniforms = ReturnType<typeof useGlassEngine>['uniforms'];
 
 /** The frozen snapshots and the glass, covering exactly the root. */
-function GlassOverlay({ frame, effect, uniforms }: { frame: Frame<SkImage>; effect: SkRuntimeEffect; uniforms: Uniforms }) {
+function GlassOverlay({ frame, effect, uniforms }: { frame: Frame<Shot>; effect: SkRuntimeEffect; uniforms: Uniforms }) {
   const area = { x: 0, y: 0, width: frame.width, height: frame.height };
   const h = frame.hole;
   const glass = (
     <Fill>
       <Shader source={effect} uniforms={uniforms}>
-        <ImageShader image={frame.from} fit="cover" rect={area} tx="mirror" ty="mirror" />
-        <ImageShader image={frame.to} fit="cover" rect={area} tx="mirror" ty="mirror" />
+        <ImageShader image={frame.from.image} fit="cover" rect={area} tx="mirror" ty="mirror" />
+        <ImageShader image={frame.to.image} fit="cover" rect={area} tx="mirror" ty="mirror" />
       </Shader>
     </Fill>
   );
@@ -137,7 +139,9 @@ function GlassOverlay({ frame, effect, uniforms }: { frame: Frame<SkImage>; effe
       <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
         {h ? (
           // A pill-shaped hole keeps the live control (e.g. a Switch) animating on top.
-          <Group clip={rrect(rect(h.x, h.y, h.width, h.height), h.height / 2, h.height / 2)} invertClip>
+          // Inset a little: the live control's antialiased rim blends with what's live behind it
+          // (already the new look), which would show as a dark or light hairline around it.
+          <Group clip={rrect(rect(h.x + INSET, h.y + INSET, h.width - 2 * INSET, h.height - 2 * INSET), h.height / 2 - INSET, h.height / 2 - INSET)} invertClip>
             {glass}
           </Group>
         ) : (
@@ -147,5 +151,7 @@ function GlassOverlay({ frame, effect, uniforms }: { frame: Frame<SkImage>; effe
     </View>
   );
 }
+
+const INSET = 0.67; // pt: 2 px on a 3x screen
 
 const styles = StyleSheet.create({ fill: { flex: 1 } });

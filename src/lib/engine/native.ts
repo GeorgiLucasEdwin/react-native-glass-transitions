@@ -2,18 +2,25 @@
 // bar, haptics. Owns every shared value the glass needs; the engine only sees `Ports`.
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { AccessibilityInfo, Dimensions, Platform, type HostInstance } from 'react-native';
-import { makeImageFromView, type SkImage } from '@shopify/react-native-skia';
+import { makeImageFromView } from '@shopify/react-native-skia';
 import { Easing, cancelAnimation, useAnimatedReaction, useDerivedValue, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 import { presets, type GlassConfig } from '../config';
 import { hapticLight, hapticSoft, hapticTick } from '../haptics';
 import { measureInWindow } from '../measure';
 import { holdBarStyle, statusBarHeight } from '../statusBar';
+import { shotOf, type Shot } from '../snapshot';
 import { snapshotWindow } from '../window';
 import { createEngine, type Aim, type Frame, type Ports, type Settings } from './engine';
 
 const NO_HOLE = [-9999, -9999, 0, 0];
 const OFF = -1e4; // ring radius before the sweep starts: far off screen
+// The ring aims 15% past the farthest corner: the easing's slow end happens off screen, so the
+// glass leaves at speed instead of crawling out (and the run finishes as it leaves, see `gone`).
+const REACH = 1.15;
+// How far from the ring's center the glass shows, in bands: its profile exp(-e²) is under 1% from
+// 2.15 out (rounded up, for a margin).
+const VISIBLE = 2.2;
 
 const nextFrame = () => new Promise<number>(requestAnimationFrame);
 
@@ -30,7 +37,7 @@ export function useGlassEngine(
   settings: RefObject<Settings>,
   enabled: boolean,
 ) {
-  const [frame, setFrame] = useState<Frame<SkImage> | null>(null);
+  const [frame, setFrame] = useState<Frame<Shot> | null>(null);
   const [busy, setBusy] = useState(false);
   const progress = useSharedValue(0);
   const end = useSharedValue(1);
@@ -43,10 +50,27 @@ export function useGlassEngine(
   const direction = useSharedValue(0); // +1 toward a darker screen, -1 toward lighter
   const look = useSharedValue<GlassConfig>(presets.glass);
   const hapticsOn = useSharedValue(true);
+  const finishing = useSharedValue(false); // the glass is on its way out (a sweep, or a scrub let go to commit)
+  // Called once the glass has left the screen: the easing's slow tail after that is invisible, and
+  // the screen shouldn't stay frozen and untouchable through it.
+  const [exit] = useState(() => {
+    let pending: (() => void) | null = null;
+    return {
+      on(done: (() => void) | null) {
+        pending = done;
+      },
+      leave() {
+        const done = pending;
+        pending = null;
+        done?.();
+      },
+    };
+  });
+  const leave = exit.leave;
 
   // `show` resolves once the frame it replaced can't be drawn any more: after React committed the
   // new one (the effect below) plus a frame for the canvas to redraw.
-  const drawn = useRef<{ frame: Frame<SkImage> | null; waiters: (() => void)[]; alive: boolean }>({ frame: null, waiters: [], alive: true });
+  const drawn = useRef<{ frame: Frame<Shot> | null; waiters: (() => void)[]; alive: boolean }>({ frame: null, waiters: [], alive: true });
   const flush = () => {
     const waiters = drawn.current.waiters.splice(0);
     if (waiters.length) nextFrame().then(() => waiters.forEach((w) => w()));
@@ -61,12 +85,12 @@ export function useGlassEngine(
       barDistance.set(aim.barDistance);
       direction.set(aim.direction);
     };
-    const ports: Ports<SkImage> = {
-      snapshot() {
-        if (windowed.current) return snapshotWindow(top.current);
+    const ports: Ports<Shot> = {
+      snapshot(touched) {
+        if (windowed.current) return snapshotWindow(top.current, touched);
         // makeImageFromView rejects (not just returns null) on failure: treat both as "no snapshot".
         try {
-          return makeImageFromView(root as never).catch(() => null);
+          return makeImageFromView(root as never).then((image) => image && shotOf(image), () => null);
         } catch {
           return Promise.resolve(null);
         }
@@ -103,30 +127,46 @@ export function useGlassEngine(
         },
         sweep(aim, duration, done) {
           aimAt(aim);
+          exit.on(done);
+          finishing.set(true);
           progress.set(
             withTiming(1, { duration, easing: Easing.bezier(0.2, 0, 0, 1) }, (finished) => {
               'worklet';
-              if (finished) scheduleOnRN(done);
+              if (finished) scheduleOnRN(leave);
             }),
           );
+        },
+        reaim({ center: c, end: e, barDistance: b, direction: d }) {
+          scheduleOnUI(() => {
+            'worklet';
+            if (radiusAt(progress.value, end.value, look.value.band) > -VISIBLE * look.value.band) return; // already showing
+            center.value = [c.x, c.y];
+            end.value = e;
+            barDistance.value = b;
+            direction.value = d;
+          });
         },
         follow(aim) {
           aimAt(aim);
           ready.set(true);
         },
         letGo(commit, done) {
+          exit.on(done);
           // Read and animate progress on the UI thread: reading it from JS would block mid-animation.
           scheduleOnUI(() => {
             'worklet';
             ready.set(false);
+            finishing.set(commit);
             const remaining = commit ? 1 - progress.value : progress.value;
             progress.value = withTiming(commit ? 1 : 0, { duration: 150 + remaining * 450, easing: Easing.out(Easing.cubic) }, (finished) => {
               'worklet';
-              if (finished) scheduleOnRN(done);
+              if (finished) scheduleOnRN(leave);
             });
           });
         },
         stop() {
+          exit.on(null);
+          finishing.set(false);
           cancelAnimation(progress);
           ready.set(false);
           barDistance.set(-1);
@@ -155,7 +195,7 @@ export function useGlassEngine(
     const hn = Math.hypot(hx, hy, hz);
     const t: readonly [number, number, number] = mood > 0 ? [0.8, 0.9, 1] : [1, 0.9, 0.75];
     const a = Math.abs(mood);
-    const s = Math.min(1, Math.max(0, (p - 0.5) / 0.5));
+    const s = Math.min(1, Math.max(0, (p - 0.5) / (gone(end.value, l.band) - 0.5)));
     return {
       center: center.value,
       radius: radiusAt(p, end.value, l.band),
@@ -181,6 +221,16 @@ export function useGlassEngine(
     () => barDistance.value >= 0 && progress.value > 0 && radiusAt(progress.value, end.value, look.value.band) >= barDistance.value,
     (reached, before) => {
       if (before !== null && reached !== before) scheduleOnRN(flip, runId.value, reached);
+    },
+  );
+  // The glass has left the screen: finish now (see `leave`).
+  useAnimatedReaction(
+    () => finishing.value && progress.value >= gone(end.value, look.value.band),
+    (left, before) => {
+      if (left && !before) {
+        finishing.set(false);
+        scheduleOnRN(leave);
+      }
     },
   );
   // During a drag the glass follows the finger through a stiff spring: smooth even when touch
@@ -226,11 +276,17 @@ export function useGlassEngine(
   return { engine, frame, busy, uniforms, target };
 }
 
+/** Progress at which the glass has left the screen: its center is VISIBLE bands past the farthest corner. */
+function gone(end: number, band: number) {
+  'worklet';
+  return (end + (2.5 + VISIBLE) * band) / (REACH * end + 5 * band);
+}
+
 /**
- * Radius of the ring's center: it starts 2.5 bands inside the origin and ends 2.5 bands past the
- * farthest corner, so the glass fades in and out off screen.
+ * Radius of the ring's center: from 2.5 bands inside the origin to 2.5 bands past REACH times the
+ * distance to the farthest corner, so the glass fades in and out off screen.
  */
 function radiusAt(progress: number, end: number, band: number) {
   'worklet';
-  return progress <= 0 ? OFF : progress * (end + 5 * band) - 2.5 * band;
+  return progress <= 0 ? OFF : progress * (REACH * end + 5 * band) - 2.5 * band;
 }

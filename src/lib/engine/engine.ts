@@ -1,18 +1,17 @@
 // The run state machine: pure TypeScript, no React Native / Skia / Reanimated at runtime. Everything
 // it touches goes through `Ports` (the native adapter in ./native.ts, a fake in the tests).
 import { presets, resolveConfig, type GlassConfig, type GlassOrigin } from '../config';
-import { barStyleFor, brightness, compare, resolveOrigin, type BarStyle, type PixelSource } from '../snapshot';
+import { barStyleFor, brightness, compare, resolveOrigin, type BarStyle, type GlassImage } from '../snapshot';
 import type { BarHold } from '../statusBar';
 import type { GlassRect, GlassResult, GlassTransitionOptions } from '../types';
 
 const FRESH_MS = 300; // a touch-down snapshot older than this may no longer match the screen
 const TOUCH_MS = 1500; // `touch` origin: how recent the touch must be
-const SETTLE_TRIES = 6; // retakes of the "after" snapshot while the new UI paints...
+const SETTLE_TRIES = 6; // shots of the "after" screen until it has visibly changed...
 const SETTLE_MS = 600; // ...within this budget
+const CONFIRM_TRIES = 2; // then more, while the glass comes in, in case it was still painting
 const CHANGED = 24; // a grid sample differing by more than this (of 765) counts as a visible change
 
-/** A snapshot. Owned by the engine: it disposes each exactly once, never while a frame shows it. */
-export type GlassImage = PixelSource & { dispose(): void };
 
 /** What the provider currently says (props, or the tuner's overrides). Read at the start of each run. */
 export type Settings = { config: GlassConfig; origin: GlassOrigin; haptics: boolean };
@@ -29,6 +28,8 @@ export type GlassControls = {
   reset(look: { config: GlassConfig; hole?: GlassRect; haptics: boolean }): void;
   /** Run the sweep to its end over `duration` ms, then call `done`. */
   sweep(aim: Aim, duration: number, done: () => void): void;
+  /** Move a running sweep's aim (origin, end, direction). Ignored once any of the glass shows. */
+  reaim(aim: Aim): void;
   /** Scrub: from now on the glass follows the finger's target. */
   follow(aim: Aim): void;
   /** Scrub let go: animate on to the end (`commit`) or back to the start, then call `done`. */
@@ -38,8 +39,11 @@ export type GlassControls = {
 };
 
 export type Ports<I extends GlassImage = GlassImage> = {
-  /** Snapshot of the root. Resolves null on failure; never rejects. */
-  snapshot(): Promise<I | null>;
+  /**
+   * Snapshot of the root. Resolves null on failure; never rejects. `touched`: the view under a
+   * touch-down; resolves null (skipped) when it's a native control the snapshot could disturb.
+   */
+  snapshot(touched?: number): Promise<I | null>;
   /** The root's rect in the window. */
   measureRoot(): Promise<GlassRect | undefined>;
   /** Status bar height in window points (0 when hidden or unknown). */
@@ -83,6 +87,8 @@ type Run<I extends GlassImage> = {
   images: I[];
   bar: BarHold | null;
   bars: { from: BarStyle | null; to: BarStyle | null };
+  /** The glass has reached the status bar (it shows `bars.to`). */
+  barReached: boolean;
   settle(result: GlassResult, failure?: Failure): void;
 };
 
@@ -229,9 +235,10 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
       Promise.resolve(o.live?.measure()).catch(() => undefined),
       ports.measureRoot(),
       ports.statusBarHeight(),
-      takeEarly() ?? ports.snapshot(),
+      // A touch-down shot can come back empty (skipped on a native control): take one now instead.
+      Promise.resolve(takeEarly()).then((image) => image ?? ports.snapshot()),
     ]);
-    const from = first as I | null;
+    const from = first;
     if (!own(r, from)) return;
     if (r.ended === false) return finalize(r, 'skipped'); // a scrub cancelled before it showed anything
     if (!from || !box || !box.width || !box.height) return fallback(r);
@@ -252,48 +259,69 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
     if (r.done) return;
     if (!reconcile(r, true)) return;
 
-    // Views drawn on the UI thread (Skia canvases, native animations) can repaint a frame or two
-    // after the React commit, and not all at once (a button's icon first, a canvas-drawn sky a frame
-    // later). So the sweep starts only once the screen has changed and then held still for a frame:
-    // the look it reveals and the direction it takes (night or day) come from the finished screen.
-    // If the budget runs out first, it starts with the newest shot.
+    // The sweep starts on the first shot that differs: a full snapshot is the slowest step, and
+    // waiting for another to confirm the screen held still would put it between the tap and the glass.
     const ignore = hole && { x: (hole.x - 4) / width, y: (hole.y - 4) / height, width: (hole.width + 8) / width, height: (hole.height + 8) / height };
     const deadline = ports.now() + SETTLE_MS;
-    let to: I = from;
-    for (let i = 0; i < SETTLE_TRIES && ports.now() < deadline; i++) {
-      await ports.nextFrame();
-      if (r.done) return;
-      const shot = await ports.snapshot();
-      if (!own(r, shot)) return;
-      if (!shot) break;
-      if (compare(to, shot, { ignore }).max <= CHANGED) {
-        drop(r, shot); // never shown
-        if (to !== from) break; // changed, then held still
-        continue;
-      }
-      if (to !== from) drop(r, to); // superseded before it was ever shown
+    let to: I | null = null;
+    for (let i = 0; !to && i < SETTLE_TRIES && ports.now() < deadline; i++) {
+      const shot = await changed(r, from, ignore);
+      if (shot === 'stop') break;
       to = shot;
     }
-    if (to === from) return fallback(r); // nothing visibly changed
+    if (r.done) return;
+    if (!to) return fallback(r); // nothing visibly changed
     r.bars.to = barAt >= 0 ? barStyleFor(to, barAt) : null;
-    await begin(r, { ...frame, to }, config, box, hole, band);
+    let current: Frame<I> = { ...frame, to };
+    let aim = aimFor(r, current, box, hole, band);
+    await begin(r, current, config, aim);
+
+    // The screen may still be painting (a heavy screen renders over several frames, a canvas-drawn
+    // sky a frame behind). While the glass comes in from off screen, swap in the newer look, and
+    // re-aim if it changes which way the screen is going (night falls, day rises).
+    for (let i = 0; i < CONFIRM_TRIES && r.phase === 'sweeping'; i++) {
+      const shot = await changed(r, current.to, ignore);
+      if (!shot || shot === 'stop') return;
+      if (r.phase !== 'sweeping') return drop(r, shot);
+      const before = current.to;
+      current = { ...current, to: shot };
+      drop(r, before, show(current));
+      r.bars.to = barAt >= 0 ? barStyleFor(shot, barAt) : null;
+      if (r.barReached) holdBar(r, r.bars.to);
+      const next = aimFor(r, current, box, hole, band);
+      if (!r.interactive && next.direction !== aim.direction) ports.glass.reaim((aim = next));
+    }
   }
 
-  /** The first changed shot is in: aim the glass and start it. */
-  async function begin(r: Run<I>, frame: Frame<I>, config: GlassConfig, box: GlassRect, hole: GlassRect | undefined, band: number) {
+  /** The next frame's shot if it visibly differs from `than`, null if not; 'stop' if there's none or the run is over. */
+  async function changed(r: Run<I>, than: I, ignore: GlassRect | undefined): Promise<I | null | 'stop'> {
+    await ports.nextFrame();
+    if (r.done) return 'stop';
+    const shot = await ports.snapshot();
+    if (!own(r, shot) || !shot) return 'stop';
+    if (compare(than, shot, { ignore }).max > CHANGED) return shot;
+    drop(r, shot); // never shown
+    return null;
+  }
+
+  /** Where the glass goes for `frame`: which way the screen is going drives `auto` and the mood. */
+  function aimFor(r: Run<I>, frame: Frame<I>, box: GlassRect, hole: GlassRect | undefined, band: number): Aim {
     const { width, height } = box;
-    // Which way is the screen going? Drives the `auto` origin and the glass's mood.
     const delta = brightness(frame.from) - brightness(frame.to);
     const direction = delta > 12 ? 1 : delta < -12 ? -1 : 0;
     const touch = lastTouch && ports.now() - lastTouch.at < TOUCH_MS ? lastTouch : undefined;
     const center = resolveOrigin(r.options.origin ?? r.settings.origin, box, { hole, touch, offset: box, dir: direction });
-    const aim: Aim = {
+    return {
       id: r.id,
       center,
       end: Math.hypot(Math.max(center.x, width - center.x), Math.max(center.y, height - center.y)),
       barDistance: band > 0 ? Math.max(0, center.y - band) : -1,
       direction,
     };
+  }
+
+  /** The first changed shot is in: aim the glass and start it. */
+  async function begin(r: Run<I>, frame: Frame<I>, config: GlassConfig, aim: Aim) {
     // Show the finished frame one frame before the glass moves: its image is uploaded to the GPU
     // while the screen is still frozen, not on the sweep's first frame (which would stutter).
     show(frame);
@@ -330,6 +358,7 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
       images: [],
       bar: null,
       bars: { from: null, to: null },
+      barReached: false,
       settle,
     };
     active = r;
@@ -372,11 +401,11 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
         },
       };
     },
-    /** Touch-down on a source: snapshotting takes ~60 ms, starting it now usually hides that. */
-    prepare() {
+    /** Touch-down on a source (`touched`: the view's tag): snapshotting takes ~60 ms, starting it now usually hides that. */
+    prepare(touched?: number) {
       if (!ports.enabled() || active) return;
       dropEarly();
-      const e = { at: ports.now(), image: ports.snapshot() };
+      const e = { at: ports.now(), image: ports.snapshot(touched) };
       early = e;
       setTimeout(() => early === e && dropEarly(), FRESH_MS);
     },
@@ -393,7 +422,9 @@ export function createEngine<I extends GlassImage>(ports: Ports<I>) {
     /** The glass reached (or left) the status bar, for run `id`: flip its style to match what's under it. */
     flip(id: number, reached: boolean) {
       const r = active;
-      if (r && r.id === id && r.phase === 'sweeping') holdBar(r, reached ? r.bars.to : r.bars.from);
+      if (!r || r.id !== id || r.phase !== 'sweeping') return;
+      r.barReached = reached;
+      holdBar(r, reached ? r.bars.to : r.bars.from);
     },
     /** Unmount: finish whatever runs, free every image. Reusable (StrictMode remounts). */
     dispose() {

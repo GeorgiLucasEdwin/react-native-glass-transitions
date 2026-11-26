@@ -33,12 +33,12 @@ const MAX_BAND = 300;
 export const presets = Object.freeze({
   /** Barely there: a thin lens, ready for production UI. */
   subtle: Object.freeze({ band: 40, refraction: 12, blur: 2, disperse: 0.1, fringe: 1, spec: 0.3, fresnel: 0.06, shadow: 0.03, settle: 0.015, mood: 0.4, duration: 700 }),
-  /** Frosted, color-warped glass with a slow, settling reveal. */
-  glass: Object.freeze({ band: 100, refraction: 20, blur: 16, disperse: 1, fringe: 9, spec: 0.5, fresnel: 0.15, shadow: 0, settle: 0.2, mood: 1, duration: 2500 }),
+  /** Frosted, color-warped glass with a settling reveal. */
+  glass: Object.freeze({ band: 100, refraction: 20, blur: 16, disperse: 1, fringe: 9, spec: 0.5, fresnel: 0.15, shadow: 0, settle: 0.2, mood: 1, duration: 1100 }),
   /** Thick, clear lens with a bright rim, in the spirit of iOS Liquid Glass. */
-  liquid: Object.freeze({ band: 70, refraction: 45, blur: 3, disperse: 0.25, fringe: 1.5, spec: 1.1, fresnel: 0.3, shadow: 0.05, settle: 0.05, mood: 0.8, duration: 1200 }),
+  liquid: Object.freeze({ band: 70, refraction: 45, blur: 3, disperse: 0.25, fringe: 1.5, spec: 1.1, fresnel: 0.3, shadow: 0.05, settle: 0.05, mood: 0.8, duration: 700 }),
   /** Heavy prism: rainbow edges and soft focus. */
-  prism: Object.freeze({ band: 80, refraction: 30, blur: 8, disperse: 1.6, fringe: 16, spec: 0.6, fresnel: 0.12, shadow: 0, settle: 0.08, mood: 0.6, duration: 1600 }),
+  prism: Object.freeze({ band: 80, refraction: 30, blur: 8, disperse: 1.6, fringe: 16, spec: 0.6, fresnel: 0.12, shadow: 0, settle: 0.08, mood: 0.6, duration: 900 }),
 }) satisfies Readonly<Record<string, Readonly<GlassConfig>>>;
 
 export type GlassPreset = keyof typeof presets;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { AppState, type HostInstance } from 'react-native';
+import { AppState, type GestureResponderEvent, type HostInstance } from 'react-native';
 import type { SharedValue } from 'react-native-reanimated';
 import { GlassContext, useRequired } from './context';
 import type { ScrubRun } from './engine/engine';
@@ -27,7 +27,7 @@ export type GlassSource = {
    * Spread on a dedicated View wrapping the control (it sets that View's `ref`, `collapsable` and
    * `onTouchStart`): keeps the control live through the sweep, and snapshots on touch-down.
    */
-  props: { ref: RefObject<HostInstance | null>; collapsable: false; onTouchStart: () => void };
+  props: { ref: RefObject<HostInstance | null>; collapsable: false; onTouchStart: (e: GestureResponderEvent) => void };
   handle: GlassSourceHandle;
   /** Like `useGlassTransition().transition`, with `live` defaulting to this source. */
   transition(apply: () => void, options?: GlassTransitionOptions): Promise<GlassResult>;
@@ -46,7 +46,7 @@ export function useGlassSource(): GlassSource {
   const [api] = useState<GlassSource>(() => {
     const handle: GlassSourceHandle = { measure: () => measureInWindow(ref.current) };
     return {
-      props: { ref, collapsable: false, onTouchStart: glass.prepare },
+      props: { ref, collapsable: false, onTouchStart: (e) => glass.prepare(e.nativeEvent.target as unknown as number) },
       handle,
       transition: (apply, options) => glass.transition(apply, { ...options, live: options?.live ?? handle }),
     };

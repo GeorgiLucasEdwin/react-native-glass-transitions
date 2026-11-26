@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-26
+
+The native module changed: rebuild the app after updating.
+
+### Changed
+
+- Faster presets: `liquid` 700 (1200), `prism` 900 (1600), `glass` 1100 (2500).
+- The glass aims a little past the farthest corner and leaves the screen at speed; the transition finishes (touches come back, the closing haptic plays) the moment it's gone, not after the easing's invisible tail.
+- The sweep starts on the first snapshot that shows the change, so it starts about one snapshot sooner (tap to glass ~85–140 ms on an iPhone 15 Pro). A screen still painting is swapped in, and the glass re-aimed, while the glass is still coming in from off screen.
+- No touch-down snapshot on a native control (a `Switch`, a slider) when the glass covers the window: it blocked the main thread while the control tracked the finger, and a quick tap could be dropped. Other sources (buttons, rows) keep the head start.
+- Window snapshots go to the GPU with no copies (a shared pixel buffer Skia uses as a texture), and don't force pending screen updates, which could make running animations (a switch's knob) jump.
+
+### Fixed
+
+- Touches weren't blocked while a transition ran: the blocking view was flattened away.
+- A hairline around a live control (e.g. a Switch) during the sweep.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added
@@ -46,6 +63,7 @@ Initial release.
 - Optional haptics via `expo-haptics`.
 - Dev tuner (`react-native-glass-transitions/tuner`) built on `@expo/ui`, with "Copy config".
 
+[0.2.1]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/GeorgiLucasEdwin/react-native-glass-transitions/compare/v0.1.1...v0.1.2
