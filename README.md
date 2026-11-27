@@ -92,6 +92,10 @@ Native sheets and modals (`formSheet`, `Modal`) are covered too: when the provid
 
 The [example app](example) shows every feature in a real app. See [CONTRIBUTING.md](CONTRIBUTING.md) to work on the library.
 
+## Support
+
+If this saved you time, you can [buy me a coffee](https://buymeacoffee.com/georgilucasedwin).
+
 ## License
 
 MIT
